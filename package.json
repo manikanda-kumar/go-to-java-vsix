@@ -1,0 +1,68 @@
+{
+  "name": "go-to-java-converter",
+  "displayName": "Go to Java Converter",
+  "description": "Convert Go function definitions to Java for Java developers learning Go",
+  "version": "0.0.2",
+  "publisher": "vscode",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "go",
+    "golang",
+    "java",
+    "converter",
+    "learning"
+  ],
+  "activationEvents": [
+    "onCommand:goToJava.convertFunction",
+    "onLanguage:go"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "goToJava.convertFunction",
+        "title": "Convert Go Function to Java",
+        "category": "Go to Java"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "when": "editorLangId == go",
+          "command": "goToJava.convertFunction",
+          "group": "1_modification"
+        }
+      ],
+      "commandPalette": [
+        {
+          "when": "editorLangId == go",
+          "command": "goToJava.convertFunction"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "goToJava.convertFunction",
+        "key": "ctrl+shift+j",
+        "mac": "cmd+shift+j",
+        "when": "editorLangId == go"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "node ../../node_modules/vscode/bin/compile -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "22.x",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.6.2",
+    "typescript": "^5.9.3"
+  }
+}

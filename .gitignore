@@ -1,0 +1,33 @@
+# Compiled output
+out/
+*.vsix
+
+# Node modules
+node_modules/
+
+# Debug and test files (temporary)
+debug.js
+debug2.js
+debug3.js
+debug4.js
+comprehensive-test.js
+test.js
+
+# IDE
+.vscode/
+.vscode-test/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
+.env
+.env.local
