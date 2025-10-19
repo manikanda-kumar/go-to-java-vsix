@@ -1,8 +1,15 @@
 import * as vscode from 'vscode';
 import { GoFunctionParser, GoFunction } from './goParser';
 import { JavaCodeGenerator, JavaGenerationOptions } from './javaGenerator';
+import { GoToJavaHoverProvider } from './hoverProvider';
 
 export function activate(context: vscode.ExtensionContext) {
+    const hoverProvider = vscode.languages.registerHoverProvider(
+        { language: 'go', scheme: 'file' },
+        new GoToJavaHoverProvider()
+    );
+    context.subscriptions.push(hoverProvider);
+
     const disposable = vscode.commands.registerCommand('goToJava.convertFunction', async () => {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
