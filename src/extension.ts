@@ -2,14 +2,87 @@ import * as vscode from 'vscode';
 import { GoFunctionParser, GoFunction } from './goParser';
 import { JavaCodeGenerator, JavaGenerationOptions } from './javaGenerator';
 import { GoToJavaHoverProvider } from './hoverProvider';
+import { JavaPreviewProvider } from './previewProvider';
 
 export function activate(context: vscode.ExtensionContext) {
+    // Register hover provider
     const hoverProvider = vscode.languages.registerHoverProvider(
         { language: 'go', scheme: 'file' },
         new GoToJavaHoverProvider()
     );
     context.subscriptions.push(hoverProvider);
 
+    // Register preview provider
+    const previewProvider = new JavaPreviewProvider();
+    context.subscriptions.push(
+        vscode.workspace.registerTextDocumentContentProvider(
+            JavaPreviewProvider.scheme,
+            previewProvider
+        )
+    );
+
+    // Track active previews for refresh
+    const activePreviewUris = new Map<string, vscode.Uri>();
+
+    // Command: Preview file as Java
+    context.subscriptions.push(
+        vscode.commands.registerCommand('goToJava.previewFile', async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) {
+                vscode.window.showErrorMessage('No active editor found');
+                return;
+            }
+
+            if (editor.document.languageId !== 'go') {
+                vscode.window.showErrorMessage('Please open a Go file to preview');
+                return;
+            }
+
+            const sourceUri = editor.document.uri;
+            const previewUri = JavaPreviewProvider.encodePreviewUri(sourceUri);
+
+            // Track this preview
+            activePreviewUris.set(sourceUri.toString(), previewUri);
+
+            // Open preview in side-by-side column
+            const doc = await vscode.workspace.openTextDocument(previewUri);
+            await vscode.window.showTextDocument(doc, vscode.ViewColumn.Beside, true);
+        })
+    );
+
+    // Command: Refresh preview
+    context.subscriptions.push(
+        vscode.commands.registerCommand('goToJava.refreshPreview', async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) {
+                return;
+            }
+
+            const sourceUri = editor.document.uri;
+            const previewUri = activePreviewUris.get(sourceUri.toString());
+
+            if (previewUri) {
+                previewProvider.update(previewUri);
+            }
+        })
+    );
+
+    // Auto-refresh on save (if configured)
+    context.subscriptions.push(
+        vscode.workspace.onDidSaveTextDocument((doc) => {
+            if (doc.languageId === 'go') {
+                const config = vscode.workspace.getConfiguration('goToJava');
+                if (config.get('preview.refreshOnSave', true)) {
+                    const previewUri = activePreviewUris.get(doc.uri.toString());
+                    if (previewUri) {
+                        previewProvider.update(previewUri);
+                    }
+                }
+            }
+        })
+    );
+
+    // Command: Convert function (existing functionality)
     const disposable = vscode.commands.registerCommand('goToJava.convertFunction', async () => {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {

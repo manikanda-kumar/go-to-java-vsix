@@ -1,50 +1,67 @@
 package main
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
-func add(a int, b int) int {
+// User represents a user in the system
+type User struct {
+	Name   string `json:"name"`
+	Age    int    `json:"age"`
+	Email  string `json:"email,omitempty"`
+	Active bool
+}
+
+// Reader is an interface for reading data
+type Reader interface {
+	Read(data []byte) (int, error)
+	Close() error
+}
+
+// MaxRetries is the maximum number of retry attempts
+const MaxRetries = 3
+
+// defaultTimeout is the default timeout in seconds
+var defaultTimeout = 30
+
+// Add returns the sum of two integers
+func Add(a, b int) int {
 	return a + b
 }
 
-func greet(name string) string {
-	return "Hello, " + name
-}
-
-func divide(a, b float64) (float64, error) {
+// Divide divides two numbers and returns error if divisor is zero
+func Divide(a, b float64) (float64, error) {
 	if b == 0 {
-		return 0, fmt.Errorf("division by zero")
+		return 0, errors.New("division by zero")
 	}
 	return a / b, nil
 }
 
-func processNumbers(nums []int) (int, int, error) {
-	if len(nums) == 0 {
-		return 0, 0, fmt.Errorf("empty slice")
+// ProcessItems processes a slice of items with metadata
+func ProcessItems(items []string, metadata map[string]int) (int, error) {
+	count := len(items)
+	for _, v := range metadata {
+		count += v
 	}
-	sum := 0
-	product := 1
-	for _, num := range nums {
-		sum += num
-		product *= num
-	}
-	return sum, product, nil
+	return count, nil
 }
 
-type Person struct {
-	name string
+// NewUser creates a new User with the given name
+func (u *User) SetName(name string) {
+	u.Name = name
 }
 
-func (p *Person) GetName() string {
-	return p.name
+// GetFullInfo returns user information
+func (u User) GetFullInfo() string {
+	return fmt.Sprintf("%s (%d)", u.Name, u.Age)
 }
 
-func calculateStats(data map[string]int) (float64, int) {
+// Sum calculates the sum of variadic integers
+func Sum(numbers ...int) int {
 	total := 0
-	count := 0
-	for _, value := range data {
-		total += value
-		count++
+	for _, n := range numbers {
+		total += n
 	}
-	avg := float64(total) / float64(count)
-	return avg, count
+	return total
 }

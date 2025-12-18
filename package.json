@@ -2,7 +2,7 @@
   "name": "go-to-java-converter",
   "displayName": "Go to Java Converter",
   "description": "Convert Go function definitions to Java for Java developers learning Go",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "publisher": "vscode",
   "license": "MIT",
   "engines": {
@@ -29,13 +29,36 @@
         "command": "goToJava.convertFunction",
         "title": "Convert Go Function to Java",
         "category": "Go to Java"
+      },
+      {
+        "command": "goToJava.previewFile",
+        "title": "Preview File as Java",
+        "category": "Go to Java",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "goToJava.refreshPreview",
+        "title": "Refresh Java Preview",
+        "category": "Go to Java"
       }
     ],
     "menus": {
+      "editor/title": [
+        {
+          "when": "editorLangId == go",
+          "command": "goToJava.previewFile",
+          "group": "navigation"
+        }
+      ],
       "editor/context": [
         {
           "when": "editorLangId == go",
           "command": "goToJava.convertFunction",
+          "group": "1_modification"
+        },
+        {
+          "when": "editorLangId == go",
+          "command": "goToJava.previewFile",
           "group": "1_modification"
         }
       ],
@@ -43,6 +66,14 @@
         {
           "when": "editorLangId == go",
           "command": "goToJava.convertFunction"
+        },
+        {
+          "when": "editorLangId == go",
+          "command": "goToJava.previewFile"
+        },
+        {
+          "when": "editorLangId == go",
+          "command": "goToJava.refreshPreview"
         }
       ]
     },
@@ -51,6 +82,12 @@
         "command": "goToJava.convertFunction",
         "key": "ctrl+shift+j",
         "mac": "cmd+shift+j",
+        "when": "editorLangId == go"
+      },
+      {
+        "command": "goToJava.previewFile",
+        "key": "ctrl+k v",
+        "mac": "cmd+k v",
         "when": "editorLangId == go"
       }
     ],
@@ -77,6 +114,16 @@
           "type": "number",
           "default": 20,
           "description": "Maximum number of lines to scan for function definition"
+        },
+        "goToJava.preview.refreshOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically refresh Java preview when Go file is saved"
+        },
+        "goToJava.preview.includeGettersSetters": {
+          "type": "boolean",
+          "default": true,
+          "description": "Generate getters and setters for struct fields in preview"
         }
       }
     }
