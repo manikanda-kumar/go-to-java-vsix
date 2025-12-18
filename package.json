@@ -2,7 +2,7 @@
   "name": "go-to-java-converter",
   "displayName": "Go to Java Converter",
   "description": "Convert Go function definitions to Java for Java developers learning Go",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "publisher": "vscode",
   "license": "MIT",
   "engines": {
