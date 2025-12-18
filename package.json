@@ -101,7 +101,11 @@
         },
         "goToJava.hover.output": {
           "type": "string",
-          "enum": ["signature", "method", "class"],
+          "enum": [
+            "signature",
+            "method",
+            "class"
+          ],
           "default": "signature",
           "enumDescriptions": [
             "Show only the method signature",
@@ -124,6 +128,12 @@
           "type": "boolean",
           "default": true,
           "description": "Generate getters and setters for struct fields in preview"
+        },
+        "goToJava.parser": {
+          "type": "string",
+          "enum": ["regex", "tree-sitter"],
+          "default": "tree-sitter",
+          "description": "Parser engine used to read Go code (tree-sitter recommended for accuracy)"
         }
       }
     }
@@ -131,10 +141,18 @@
   "scripts": {
     "compile": "node ../../node_modules/vscode/bin/compile -watch -p ./"
   },
+  "dependencies": {
+    "tree-sitter-go": "^0.20.3",
+    "web-tree-sitter": "^0.21.1"
+  },
   "devDependencies": {
     "@types/node": "22.x",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.6.2",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "tree-sitter-go": "^0.25.0",
+    "web-tree-sitter": "^0.26.3"
   }
 }

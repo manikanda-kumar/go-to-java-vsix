@@ -3,6 +3,7 @@ import * as path from 'path';
 import { TextDecoder } from 'util';
 import { GoFileParser } from './goFileParser';
 import { JavaFileGenerator, JavaFileGenerationOptions } from './javaFileGenerator';
+import * as TreeSitterGoParser from './treeSitterGoParser';
 
 /**
  * Provider for Java preview content
@@ -25,8 +26,11 @@ export class JavaPreviewProvider implements vscode.TextDocumentContentProvider {
             // Read the Go file content
             const goContent = await this.readGoFile(sourceUri);
 
-            // Parse the Go file
-            const goFile = GoFileParser.parseFile(goContent);
+            // Parse the Go file (prefer tree-sitter when configured)
+            const parserChoice = vscode.workspace.getConfiguration('goToJava').get<'regex' | 'tree-sitter'>('parser', 'tree-sitter');
+            const goFile = parserChoice === 'tree-sitter'
+                ? await TreeSitterGoParser.parseFile(goContent)
+                : GoFileParser.parseFile(goContent);
 
             // Get configuration options
             const options = this.getGenerationOptions(sourceUri);

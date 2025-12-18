@@ -4,6 +4,7 @@ import { JavaCodeGenerator, JavaGenerationOptions } from './javaGenerator';
 import { GoToJavaHoverProvider } from './hoverProvider';
 import { JavaPreviewProvider } from './previewProvider';
 import { findFunctionHeader } from './functionLocator';
+import * as TreeSitterGoParser from './treeSitterGoParser';
 
 export function activate(context: vscode.ExtensionContext) {
     // Register hover provider
@@ -113,7 +114,10 @@ export function activate(context: vscode.ExtensionContext) {
             selectedText = editor.document.getText(selection);
         }
 
-        const goFunction = GoFunctionParser.parseFunction(selectedText);
+        const parserChoice = config.get<'regex' | 'tree-sitter'>('parser', 'tree-sitter');
+        const goFunction = parserChoice === 'tree-sitter'
+            ? await TreeSitterGoParser.parseFunction(selectedText)
+            : GoFunctionParser.parseFunction(selectedText);
         if (!goFunction) {
             vscode.window.showErrorMessage('Could not parse Go function. Please select a valid function definition.');
             return;

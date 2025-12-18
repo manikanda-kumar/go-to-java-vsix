@@ -2,13 +2,14 @@ import * as vscode from 'vscode';
 import { GoFunctionParser } from './goParser';
 import { JavaCodeGenerator } from './javaGenerator';
 import { findFunctionHeader } from './functionLocator';
+import * as TreeSitterGoParser from './treeSitterGoParser';
 
 export class GoToJavaHoverProvider implements vscode.HoverProvider {
-    provideHover(
+    async provideHover(
         document: vscode.TextDocument,
         position: vscode.Position,
         token: vscode.CancellationToken
-    ): vscode.ProviderResult<vscode.Hover> {
+    ): Promise<vscode.Hover | undefined> {
         const config = vscode.workspace.getConfiguration('goToJava');
         const enabled = config.get<boolean>('hover.enabled', true);
         
@@ -25,7 +26,10 @@ export class GoToJavaHoverProvider implements vscode.HoverProvider {
             return undefined;
         }
 
-        const goFunc = GoFunctionParser.parseFunction(header.text);
+        const parserChoice = config.get<'regex' | 'tree-sitter'>('parser', 'tree-sitter');
+        const goFunc = parserChoice === 'tree-sitter'
+            ? await TreeSitterGoParser.parseFunction(header.text)
+            : GoFunctionParser.parseFunction(header.text);
         if (!goFunc) {
             return undefined;
         }
