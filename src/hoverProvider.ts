@@ -1,11 +1,7 @@
 import * as vscode from 'vscode';
 import { GoFunctionParser } from './goParser';
 import { JavaCodeGenerator } from './javaGenerator';
-
-interface FunctionHeader {
-    text: string;
-    range: vscode.Range;
-}
+import { findFunctionHeader } from './functionLocator';
 
 export class GoToJavaHoverProvider implements vscode.HoverProvider {
     provideHover(
@@ -20,7 +16,11 @@ export class GoToJavaHoverProvider implements vscode.HoverProvider {
             return undefined;
         }
 
-        const header = this.extractGoFunctionHeader(document, position);
+        const header = findFunctionHeader(
+            document,
+            position,
+            config.get<number>('hover.maxScanLines', 20)
+        );
         if (!header) {
             return undefined;
         }
@@ -52,55 +52,6 @@ export class GoToJavaHoverProvider implements vscode.HoverProvider {
         const md = new vscode.MarkdownString();
         md.appendMarkdown('**Java Equivalent:**\n\n');
         md.appendCodeblock(javaPreview, 'java');
-        md.isTrusted = true;
-
         return new vscode.Hover(md, header.range);
-    }
-
-    private extractGoFunctionHeader(
-        document: vscode.TextDocument,
-        position: vscode.Position
-    ): FunctionHeader | undefined {
-        const config = vscode.workspace.getConfiguration('goToJava');
-        const maxScan = config.get<number>('hover.maxScanLines', 20);
-
-        let start = position.line;
-        
-        for (let i = position.line; i >= Math.max(0, position.line - maxScan); i--) {
-            const line = document.lineAt(i).text;
-            if (line.trim().startsWith('func')) {
-                start = i;
-                break;
-            }
-        }
-
-        if (!document.lineAt(start).text.trim().startsWith('func')) {
-            return undefined;
-        }
-
-        const end = Math.min(document.lineCount - 1, start + maxScan);
-        let headerEndLine = start;
-        let headerEndChar = document.lineAt(start).text.length;
-
-        for (let i = start; i <= end; i++) {
-            const text = document.lineAt(i).text;
-            const braceIdx = text.indexOf('{');
-            if (braceIdx >= 0) {
-                headerEndLine = i;
-                headerEndChar = braceIdx;
-                break;
-            }
-            headerEndLine = i;
-            headerEndChar = text.length;
-        }
-
-        const range = new vscode.Range(start, 0, headerEndLine, headerEndChar);
-
-        if (position.line < start || position.line > headerEndLine) {
-            return undefined;
-        }
-
-        const text = document.getText(range).trim();
-        return { text, range };
     }
 }

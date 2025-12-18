@@ -110,66 +110,37 @@ export class GoFunctionParser {
     }
 
     private static parseParameters(paramsStr: string): GoParameter[] {
-        if (!paramsStr.trim()) {
+        const trimmed = paramsStr.trim();
+        if (!trimmed) {
             return [];
         }
 
         const params: GoParameter[] = [];
-        
-        // Parse Go parameters which can be grouped like "a, b int" or separate like "a int, b int"
-        const segments = paramsStr.split(',').map(s => s.trim());
-        
-        // First pass: identify which segments have types
-        const segmentsWithTypes = segments.map((segment, index) => {
-            const parts = segment.split(/\s+/);
-            return {
-                index,
-                segment,
-                hasType: parts.length >= 2,
-                name: parts[0],
-                type: parts.length >= 2 ? parts.slice(1).join(' ') : ''
-            };
-        });
-        
-        // Second pass: group parameters
-        let currentType = '';
-        let currentNames: string[] = [];
-        
-        for (const seg of segmentsWithTypes) {
-            if (seg.hasType) {
-                // Check if the previous segment was a name without type (indicating a group)
-                const prevSeg = segmentsWithTypes.find(s => s.index === seg.index - 1);
-                
-                if (prevSeg && !prevSeg.hasType) {
-                    // This is the type for a group that started with previous names
-                    currentNames.push(prevSeg.name);
-                    currentNames.push(seg.name); // Add current name too
-                    currentType = seg.type;
-                    
-                    // Add all names in the group with this type
-                    const type = this.parseType(currentType);
-                    for (const name of currentNames) {
-                        params.push({ name, type });
-                    }
-                    currentNames = [];
-                    currentType = '';
-                } else {
-                    // Standalone parameter
-                    const type = this.parseType(seg.type);
-                    params.push({ name: seg.name, type });
-                }
+        let pendingNames: string[] = [];
+
+        // Split on commas at top level to respect Go's grouped syntax (a, b, c int)
+        const segments = trimmed.split(',').map(s => s.trim()).filter(Boolean);
+
+        for (const segment of segments) {
+            const tokens = segment.split(/\s+/).filter(Boolean);
+            if (tokens.length === 1) {
+                // Only a name so far; type should appear in a later segment
+                pendingNames.push(tokens[0]);
+                continue;
             }
-            // Note: we don't need the else case since we handle groups when we encounter the type
-        }
-        
-        // Add any remaining parameters
-        if (currentNames.length > 0 && currentType) {
-            const type = this.parseType(currentType);
-            for (const name of currentNames) {
+
+            // Last token is the type (covers variadic ...T, slices, maps)
+            const typeStr = tokens.slice(-1).join(' ');
+            const names = [...pendingNames, ...tokens.slice(0, -1)];
+            pendingNames = [];
+
+            const type = this.parseType(typeStr);
+            for (const name of names) {
                 params.push({ name, type });
             }
         }
 
+        // If names are left without a type, we cannot safely infer; drop them
         return params;
     }
 
@@ -180,13 +151,24 @@ export class GoFunctionParser {
         }
 
         // Remove leading ':' if present
-        const cleanReturnStr = returnStr.startsWith(':') ? returnStr.substring(1).trim() : returnStr;
+        let cleanReturnStr = returnStr.startsWith(':') ? returnStr.substring(1).trim() : returnStr.trim();
+
+        // Strip surrounding parentheses for tuple returns e.g. "(int, error)" or "(res int, err error)"
+        if (cleanReturnStr.startsWith('(') && cleanReturnStr.endsWith(')')) {
+            cleanReturnStr = cleanReturnStr.substring(1, cleanReturnStr.length - 1).trim();
+        }
 
         // Split by commas for multiple return values
         const returnList = cleanReturnStr.split(',').map(s => s.trim()).filter(s => s);
 
         for (const returnItem of returnList) {
-            const type = this.parseType(returnItem);
+            // Handle named returns: "res int" -> type is last token
+            const tokens = returnItem.split(/\s+/).filter(Boolean);
+            if (tokens.length === 0) {
+                continue;
+            }
+            const typeToken = tokens[tokens.length - 1];
+            const type = this.parseType(typeToken);
             returnTypes.push(type);
         }
 

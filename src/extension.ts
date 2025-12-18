@@ -3,6 +3,7 @@ import { GoFunctionParser, GoFunction } from './goParser';
 import { JavaCodeGenerator, JavaGenerationOptions } from './javaGenerator';
 import { GoToJavaHoverProvider } from './hoverProvider';
 import { JavaPreviewProvider } from './previewProvider';
+import { findFunctionHeader } from './functionLocator';
 
 export function activate(context: vscode.ExtensionContext) {
     // Register hover provider
@@ -93,42 +94,21 @@ export function activate(context: vscode.ExtensionContext) {
         const selection = editor.selection;
         let selectedText: string = '';
 
+        const config = vscode.workspace.getConfiguration('goToJava');
+
         if (selection.isEmpty) {
-            let startLine = selection.start.line;
-            const currentLine = editor.document.lineAt(startLine).text;
-            
-            if (!currentLine.trim().startsWith('func')) {
-                for (let i = startLine; i >= Math.max(0, startLine - 5); i--) {
-                    if (editor.document.lineAt(i).text.trim().startsWith('func')) {
-                        startLine = i;
-                        break;
-                    }
-                }
+            const header = findFunctionHeader(
+                editor.document,
+                selection.start,
+                config.get('hover.maxScanLines', 20)
+            );
+
+            if (!header) {
+                vscode.window.showErrorMessage('Could not locate a Go function near the cursor.');
+                return;
             }
-            
-            let endLine = startLine;
-            let foundOpenBrace = false;
-            while (endLine < editor.document.lineCount && !foundOpenBrace) {
-                const lineText = editor.document.lineAt(endLine).text;
-                if (lineText.includes('{')) {
-                    foundOpenBrace = true;
-                    const braceIndex = lineText.indexOf('{');
-                    const beforeBrace = lineText.substring(0, braceIndex);
-                    if (endLine === startLine) {
-                        selectedText = beforeBrace.trim();
-                    } else {
-                        const range = new vscode.Range(startLine, 0, endLine, braceIndex);
-                        selectedText = editor.document.getText(range).trim();
-                    }
-                    break;
-                }
-                endLine++;
-            }
-            
-            if (!foundOpenBrace) {
-                const range = new vscode.Range(startLine, 0, Math.min(startLine + 10, editor.document.lineCount - 1), 0);
-                selectedText = editor.document.getText(range).trim();
-            }
+
+            selectedText = header.text;
         } else {
             selectedText = editor.document.getText(selection);
         }
@@ -141,8 +121,8 @@ export function activate(context: vscode.ExtensionContext) {
 
         const outputFormat = await vscode.window.showQuickPick([
             { label: 'Method only', description: 'Generate just the Java method' },
-            { label: 'Full class', description: 'Generate a complete Java class with the method' },
-            { label: 'Full class with Result', description: 'Generate class with method and result class for multiple returns' }
+            { label: 'Full class', description: 'Generate a complete Java class without Result helper classes' },
+            { label: 'Full class with Result', description: 'Generate class with method and Result class for multiple returns' }
         ], {
             placeHolder: 'Choose output format'
         });
@@ -165,10 +145,16 @@ export function activate(context: vscode.ExtensionContext) {
                 javaCode = JavaCodeGenerator.generateJavaMethod(goFunction, options);
                 break;
             case 'Full class':
-                javaCode = JavaCodeGenerator.generateFullJavaClass(goFunction, 'GoConverter', options);
+                javaCode = JavaCodeGenerator.generateFullJavaClass(goFunction, 'GoConverter', {
+                    ...options,
+                    includeResultClass: false
+                });
                 break;
             case 'Full class with Result':
-                javaCode = JavaCodeGenerator.generateFullJavaClass(goFunction, 'GoConverter', options);
+                javaCode = JavaCodeGenerator.generateFullJavaClass(goFunction, 'GoConverter', {
+                    ...options,
+                    includeResultClass: true
+                });
                 break;
             default:
                 return;

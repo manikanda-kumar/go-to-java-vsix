@@ -6,13 +6,15 @@ export interface JavaGenerationOptions {
     addComments: boolean;
     handleErrorsAsExceptions: boolean;
     addLearningHints?: boolean;
+    includeResultClass?: boolean;
 }
 
 export class JavaCodeGenerator {
     static generateJavaMethod(goFunc: GoFunction, options: JavaGenerationOptions = {
         isStatic: true,
         addComments: true,
-        handleErrorsAsExceptions: true
+        handleErrorsAsExceptions: true,
+        includeResultClass: true
     }): string {
         const lines: string[] = [];
 
@@ -99,6 +101,8 @@ export class JavaCodeGenerator {
     }
 
     private static getReturnType(goFunc: GoFunction, options: JavaGenerationOptions): string {
+        const includeResultClass = options.includeResultClass ?? true;
+
         if (goFunc.returnTypes.length === 0) {
             return 'void';
         }
@@ -114,7 +118,9 @@ export class JavaCodeGenerator {
             return GoFunctionParser.convertGoTypeToJava(nonErrorTypes[0]);
         }
 
-        return this.generateResultClassName(goFunc, options);
+        return includeResultClass
+            ? this.generateResultClassName(goFunc, options)
+            : GoFunctionParser.convertGoTypeToJava(nonErrorTypes[0]);
     }
 
     private static generateResultClassName(goFunc: GoFunction, options: JavaGenerationOptions): string {
@@ -154,6 +160,7 @@ export class JavaCodeGenerator {
 
     private static generateMethodBody(goFunc: GoFunction, options: JavaGenerationOptions): string {
         const lines: string[] = [];
+        const includeResultClass = options.includeResultClass ?? true;
 
         if (goFunc.returnTypes.length === 0) {
             if (goFunc.hasErrorReturn && options.handleErrorsAsExceptions) {
@@ -162,21 +169,24 @@ export class JavaCodeGenerator {
             } else {
                 lines.push('    // Method implementation');
             }
-        } else if (goFunc.returnTypes.length === 1) {
-            const returnType = goFunc.returnTypes[0];
-            if (returnType.name === 'error') {
-                lines.push('    // Error handling implementation');
+        } else {
+            const nonErrorTypes = goFunc.returnTypes.filter(t => t.name !== 'error');
+
+            if (nonErrorTypes.length === 0) {
                 if (options.handleErrorsAsExceptions) {
                     lines.push('    throw new Exception("Not implemented");');
+                } else {
+                    lines.push('    // TODO: Implement method logic');
                 }
-            } else {
-                const javaType = GoFunctionParser.convertGoTypeToJava(returnType);
+            } else if (nonErrorTypes.length === 1 || !includeResultClass) {
+                const targetType = nonErrorTypes[0];
+                const javaType = GoFunctionParser.convertGoTypeToJava(targetType);
                 const defaultValue = this.getDefaultValue(javaType);
                 lines.push(`    return ${defaultValue};`);
+            } else {
+                const resultClass = this.generateResultClassName(goFunc, options);
+                lines.push(`    return new ${resultClass}();`);
             }
-        } else {
-            const resultClass = this.generateResultClassName(goFunc, options);
-            lines.push(`    return new ${resultClass}();`);
         }
 
         lines.push('}');
@@ -271,7 +281,8 @@ export class JavaCodeGenerator {
         if (options?.addLearningHints) {
             lines.push('/**');
             lines.push(' * Go to Java Conversion Notes:');
-            if (goFunc.returnTypes.length > 1) {
+            const includeResultClass = options.includeResultClass ?? true;
+            if (goFunc.returnTypes.length > 1 && includeResultClass) {
                 lines.push(' * - Go supports multiple return values; Java uses a Result class to achieve this');
             }
             if (goFunc.hasErrorReturn) {
@@ -300,14 +311,16 @@ export class JavaCodeGenerator {
             isStatic: true,
             addComments: true,
             handleErrorsAsExceptions: true,
-            addLearningHints: options?.addLearningHints
+            addLearningHints: options?.addLearningHints,
+            includeResultClass: options?.includeResultClass
         };
 
         lines.push(this.generateJavaMethod(goFunc, methodOptions));
         lines.push('');
 
-        const resultClass = this.generateResultClass(goFunc, methodOptions);
-        if (resultClass) {
+        const includeResultClass = methodOptions.includeResultClass ?? true;
+        const resultClass = includeResultClass ? this.generateResultClass(goFunc, methodOptions) : '';
+        if (includeResultClass && resultClass) {
             lines.push(resultClass);
         }
 

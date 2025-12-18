@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { TextDecoder } from 'util';
 import { GoFileParser } from './goFileParser';
 import { JavaFileGenerator, JavaFileGenerationOptions } from './javaFileGenerator';
 
@@ -16,13 +17,13 @@ export class JavaPreviewProvider implements vscode.TextDocumentContentProvider {
     /**
      * Provide the Java content for a given preview URI
      */
-    provideTextDocumentContent(uri: vscode.Uri): string {
+    async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
         try {
             // Decode the source file URI from the preview URI
             const sourceUri = this.decodeSourceUri(uri);
 
             // Read the Go file content
-            const goContent = this.readGoFile(sourceUri);
+            const goContent = await this.readGoFile(sourceUri);
 
             // Parse the Go file
             const goFile = GoFileParser.parseFile(goContent);
@@ -50,31 +51,24 @@ export class JavaPreviewProvider implements vscode.TextDocumentContentProvider {
      * Encode a source Go file URI into a preview URI
      */
     static encodePreviewUri(sourceUri: vscode.Uri): vscode.Uri {
-        // Create a preview URI that embeds the source file path
-        // Format: java-preview://authority/path/to/file.go.java
-        const previewPath = sourceUri.path + '.java';
-        return vscode.Uri.parse(`${JavaPreviewProvider.scheme}://preview${previewPath}`);
+        // Embed the original URI in the query to keep Windows and non-file schemes safe
+        const encoded = encodeURIComponent(sourceUri.toString());
+        return vscode.Uri.parse(`${JavaPreviewProvider.scheme}://preview?source=${encoded}`);
     }
 
     /**
      * Decode the source URI from a preview URI
      */
     private decodeSourceUri(previewUri: vscode.Uri): vscode.Uri {
-        // Extract the original file path from the preview URI
-        let filePath = previewUri.path;
-
-        // Remove the .java extension we added
-        if (filePath.endsWith('.java')) {
-            filePath = filePath.substring(0, filePath.length - 5);
-        }
-
-        return vscode.Uri.file(filePath);
+        const query = previewUri.query || '';
+        const encoded = query.replace(/^source=/, '');
+        return vscode.Uri.parse(decodeURIComponent(encoded));
     }
 
     /**
      * Read the content of a Go file
      */
-    private readGoFile(uri: vscode.Uri): string {
+    private async readGoFile(uri: vscode.Uri): Promise<string> {
         const document = vscode.workspace.textDocuments.find(doc => doc.uri.toString() === uri.toString());
 
         if (document) {
@@ -82,9 +76,8 @@ export class JavaPreviewProvider implements vscode.TextDocumentContentProvider {
             return document.getText();
         }
 
-        // File is not open, read from disk
-        const fs = require('fs');
-        return fs.readFileSync(uri.fsPath, 'utf-8');
+        const data = await vscode.workspace.fs.readFile(uri);
+        return new TextDecoder('utf-8').decode(data);
     }
 
     /**
