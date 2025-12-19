@@ -66,11 +66,14 @@ export class JavaPreviewProvider implements vscode.TextDocumentContentProvider {
 
     /**
      * Encode a source Go file URI into a preview URI
+     * Uses .java extension so VS Code enables Java syntax highlighting
      */
     static encodePreviewUri(sourceUri: vscode.Uri): vscode.Uri {
         // Embed the original URI in the query to keep Windows and non-file schemes safe
+        // Add .java extension for syntax highlighting
         const encoded = encodeURIComponent(sourceUri.toString());
-        return vscode.Uri.parse(`${JavaPreviewProvider.scheme}://preview?source=${encoded}`);
+        const baseName = path.basename(sourceUri.fsPath, '.go');
+        return vscode.Uri.parse(`${JavaPreviewProvider.scheme}://preview/${baseName}.java?source=${encoded}`);
     }
 
     /**

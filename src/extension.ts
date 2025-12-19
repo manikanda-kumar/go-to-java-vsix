@@ -25,6 +25,15 @@ export function activate(context: vscode.ExtensionContext) {
         )
     );
 
+    // Register language association for java-preview scheme
+    context.subscriptions.push(
+        vscode.workspace.onDidOpenTextDocument((doc) => {
+            if (doc.uri.scheme === JavaPreviewProvider.scheme && doc.languageId !== 'java') {
+                vscode.languages.setTextDocumentLanguage(doc, 'java');
+            }
+        })
+    );
+
     // Track active previews for refresh
     const activePreviewUris = new Map<string, vscode.Uri>();
 
