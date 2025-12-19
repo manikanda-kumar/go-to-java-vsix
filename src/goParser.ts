@@ -20,6 +20,23 @@ export interface GoType {
     isVariadic: boolean;
     keyType?: GoType;
     valueType?: GoType;
+    // Semantic fields (enriched by gopls)
+    /** Whether this type is an interface (from gopls) */
+    isInterface?: boolean;
+    /** Whether this type is a struct (from gopls) */
+    isStruct?: boolean;
+    /** Package path for imported types (e.g., "io" for io.Reader) */
+    packagePath?: string;
+    /** Underlying type for type aliases (from gopls) */
+    resolvedType?: string;
+    /** Whether this type has been enriched by gopls */
+    isResolved?: boolean;
+}
+
+/** Source position for a type reference (used for gopls queries) */
+export interface TypeSourcePosition {
+    line: number;
+    character: number;
 }
 
 export class GoFunctionParser {

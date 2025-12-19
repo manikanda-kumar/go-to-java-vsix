@@ -5,6 +5,8 @@ import { GoToJavaHoverProvider } from './hoverProvider';
 import { JavaPreviewProvider } from './previewProvider';
 import { findFunctionHeader } from './functionLocator';
 import * as TreeSitterGoParser from './treeSitterGoParser';
+import { TypeEnricher } from './typeEnricher';
+import { typeCache } from './typeCache';
 
 export function activate(context: vscode.ExtensionContext) {
     // Register hover provider
@@ -73,6 +75,9 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.workspace.onDidSaveTextDocument((doc) => {
             if (doc.languageId === 'go') {
+                // Invalidate type cache for this document
+                TypeEnricher.invalidateCache(doc.uri.toString());
+
                 const config = vscode.workspace.getConfiguration('goToJava');
                 if (config.get('preview.refreshOnSave', true)) {
                     const previewUri = activePreviewUris.get(doc.uri.toString());
@@ -80,6 +85,15 @@ export function activate(context: vscode.ExtensionContext) {
                         previewProvider.update(previewUri);
                     }
                 }
+            }
+        })
+    );
+
+    // Invalidate cache when documents change
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeTextDocument((event) => {
+            if (event.document.languageId === 'go') {
+                TypeEnricher.invalidateCache(event.document.uri.toString());
             }
         })
     );
@@ -115,12 +129,18 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         const parserChoice = config.get<'regex' | 'tree-sitter'>('parser', 'tree-sitter');
-        const goFunction = parserChoice === 'tree-sitter'
+        let goFunction = parserChoice === 'tree-sitter'
             ? await TreeSitterGoParser.parseFunction(selectedText)
             : GoFunctionParser.parseFunction(selectedText);
         if (!goFunction) {
             vscode.window.showErrorMessage('Could not parse Go function. Please select a valid function definition.');
             return;
+        }
+
+        // Enrich with gopls type information if enabled
+        if (config.get('useGoplsEnrichment', true)) {
+            const startLine = selection.isEmpty ? selection.start.line : selection.start.line;
+            goFunction = await TypeEnricher.enrichGoFunction(goFunction, editor.document, startLine);
         }
 
         const outputFormat = await vscode.window.showQuickPick([

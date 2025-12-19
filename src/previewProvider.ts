@@ -4,6 +4,7 @@ import { TextDecoder } from 'util';
 import { GoFileParser } from './goFileParser';
 import { JavaFileGenerator, JavaFileGenerationOptions } from './javaFileGenerator';
 import * as TreeSitterGoParser from './treeSitterGoParser';
+import { TypeEnricher } from './typeEnricher';
 
 /**
  * Provider for Java preview content
@@ -27,10 +28,22 @@ export class JavaPreviewProvider implements vscode.TextDocumentContentProvider {
             const goContent = await this.readGoFile(sourceUri);
 
             // Parse the Go file (prefer tree-sitter when configured)
-            const parserChoice = vscode.workspace.getConfiguration('goToJava').get<'regex' | 'tree-sitter'>('parser', 'tree-sitter');
-            const goFile = parserChoice === 'tree-sitter'
+            const config = vscode.workspace.getConfiguration('goToJava');
+            const parserChoice = config.get<'regex' | 'tree-sitter'>('parser', 'tree-sitter');
+            let goFile = parserChoice === 'tree-sitter'
                 ? await TreeSitterGoParser.parseFile(goContent)
                 : GoFileParser.parseFile(goContent);
+
+            // Enrich with gopls type information if enabled
+            if (config.get('useGoplsEnrichment', true)) {
+                // Get the source document for enrichment
+                const sourceDocument = vscode.workspace.textDocuments.find(
+                    doc => doc.uri.toString() === sourceUri.toString()
+                );
+                if (sourceDocument) {
+                    goFile = await TypeEnricher.enrichGoFile(goFile, sourceDocument);
+                }
+            }
 
             // Get configuration options
             const options = this.getGenerationOptions(sourceUri);

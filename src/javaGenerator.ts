@@ -72,6 +72,12 @@ export class JavaCodeGenerator {
         if (param.type.isPointer) {
             return `${param.type.name} reference`;
         }
+        if (param.type.isInterface) {
+            return `${param.type.name} interface implementation`;
+        }
+        if (param.type.isStruct) {
+            return `${param.type.name} object`;
+        }
         return `${param.type.name} value`;
     }
 
@@ -299,6 +305,13 @@ export class JavaCodeGenerator {
             }
             if (goFunc.parameters.some(p => p.type.isPointer)) {
                 lines.push(' * - Go pointers (*T) are mapped to Java objects (all objects are references)');
+            }
+            if (goFunc.parameters.some(p => p.type.isInterface)) {
+                lines.push(' * - Go interfaces are similar to Java interfaces (implicit implementation in Go)');
+            }
+            if (goFunc.parameters.some(p => p.type.packagePath)) {
+                const pkgs = [...new Set(goFunc.parameters.filter(p => p.type.packagePath).map(p => p.type.packagePath))];
+                lines.push(` * - Uses types from packages: ${pkgs.join(', ')}`);
             }
             lines.push(' */');
         }

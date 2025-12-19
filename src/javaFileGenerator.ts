@@ -284,11 +284,24 @@ export class JavaFileGenerator {
 
     /**
      * Convert Go type to Java type with context awareness
+     * Uses semantic information from gopls when available
      */
     private static convertTypeToJava(goType: GoType, struct: GoStruct, knownTypes: string[]): string {
         // Check if this is a known custom type
         if (knownTypes.includes(goType.name)) {
             return goType.name;
+        }
+
+        // If we have gopls-enriched info, use it for better type mapping
+        if (goType.isResolved) {
+            // Handle qualified types (e.g., io.Reader)
+            if (goType.packagePath && goType.name.includes('.')) {
+                // For now, keep the qualified name as-is
+                // In a full implementation, we could map common types:
+                // - io.Reader -> java.io.InputStream
+                // - context.Context -> custom Context interface
+                // etc.
+            }
         }
 
         // Use existing type conversion

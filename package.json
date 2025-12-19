@@ -134,25 +134,34 @@
           "enum": ["regex", "tree-sitter"],
           "default": "tree-sitter",
           "description": "Parser engine used to read Go code (tree-sitter recommended for accuracy)"
+        },
+        "goToJava.useGoplsEnrichment": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use gopls for enhanced type resolution (requires Go extension)"
+        },
+        "goToJava.goplsTimeout": {
+          "type": "number",
+          "default": 1000,
+          "minimum": 100,
+          "maximum": 10000,
+          "description": "Timeout in ms for gopls queries (default: 1000ms)"
         }
       }
     }
   },
   "scripts": {
-    "compile": "node ../../node_modules/vscode/bin/compile -watch -p ./"
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
   },
   "dependencies": {
-    "tree-sitter-go": "^0.20.3",
-    "web-tree-sitter": "^0.21.1"
+    "tree-sitter-go": "^0.25.0",
+    "web-tree-sitter": "^0.26.3"
   },
   "devDependencies": {
     "@types/node": "22.x",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.6.2",
     "typescript": "^5.9.3"
-  },
-  "dependencies": {
-    "tree-sitter-go": "^0.25.0",
-    "web-tree-sitter": "^0.26.3"
   }
 }
