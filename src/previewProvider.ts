@@ -5,6 +5,8 @@ import { GoFileParser } from './goFileParser';
 import { JavaFileGenerator, JavaFileGenerationOptions } from './javaFileGenerator';
 import * as TreeSitterGoParser from './treeSitterGoParser';
 import { TypeEnricher } from './typeEnricher';
+import { TypeDependencyResolver, createTypeDependencyResolver } from './typeDependencyResolver';
+import { createConversionContext, ConversionContext } from './conversionContext';
 
 /**
  * Provider for Java preview content
@@ -34,22 +36,48 @@ export class JavaPreviewProvider implements vscode.TextDocumentContentProvider {
                 ? await TreeSitterGoParser.parseFile(goContent)
                 : GoFileParser.parseFile(goContent);
 
+            // Get the source document for enrichment
+            const sourceDocument = vscode.workspace.textDocuments.find(
+                doc => doc.uri.toString() === sourceUri.toString()
+            ) || await vscode.workspace.openTextDocument(sourceUri);
+
             // Enrich with gopls type information if enabled
-            if (config.get('useGoplsEnrichment', true)) {
-                // Get the source document for enrichment
-                const sourceDocument = vscode.workspace.textDocuments.find(
-                    doc => doc.uri.toString() === sourceUri.toString()
-                );
-                if (sourceDocument) {
-                    goFile = await TypeEnricher.enrichGoFile(goFile, sourceDocument);
+            let context: ConversionContext | undefined;
+            
+            if (config.get('useGoplsEnrichment', true) && sourceDocument) {
+                // First, do shallow type enrichment (existing behavior)
+                goFile = await TypeEnricher.enrichGoFile(goFile, sourceDocument);
+                
+                // Then, do deep dependency resolution if enabled
+                if (config.get('useDeepResolution', true)) {
+                    try {
+                        const resolver = createTypeDependencyResolver();
+                        const dependencyGraph = await resolver.resolveFileDependencies(
+                            goFile,
+                            sourceDocument,
+                            { 
+                                maxDepth: config.get('resolutionDepth', 3),
+                                resolveStdlib: false 
+                            }
+                        );
+                        context = createConversionContext(goFile, dependencyGraph);
+                    } catch (error) {
+                        // Deep resolution failed, fall back to basic context
+                        console.warn('Deep type resolution failed:', error);
+                        context = createConversionContext(goFile);
+                    }
+                } else {
+                    context = createConversionContext(goFile);
                 }
+            } else {
+                context = createConversionContext(goFile);
             }
 
             // Get configuration options
             const options = this.getGenerationOptions(sourceUri);
 
-            // Generate Java code
-            const javaCode = JavaFileGenerator.generateJavaFile(goFile, options);
+            // Generate Java code with context
+            const javaCode = JavaFileGenerator.generateJavaFile(goFile, options, context);
 
             return javaCode;
         } catch (error) {

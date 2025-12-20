@@ -1,4 +1,4 @@
-import { GoFunction, GoFunctionParser, GoParameter, GoType } from './goParser';
+import { GoFunction, GoFunctionParser, GoParameter, GoType, SourcePosition, SourceRange } from './goParser';
 
 export interface GoFile {
     packageName: string;
@@ -13,12 +13,20 @@ export interface GoFile {
 export interface GoImport {
     alias?: string;
     path: string;
+    /** Line number where this import is declared */
+    line?: number;
 }
 
 export interface GoStruct {
     name: string;
     fields: GoField[];
     methods: GoFunction[];
+    /** Position of the struct name in source */
+    namePosition?: SourcePosition;
+    /** Full range of the struct definition */
+    range?: SourceRange;
+    /** Embedded types (anonymous fields) */
+    embeddedTypes?: GoType[];
 }
 
 export interface GoField {
@@ -26,17 +34,31 @@ export interface GoField {
     type: GoType;
     tag?: string;
     exported: boolean;
+    /** Position of the field name in source */
+    namePosition?: SourcePosition;
+    /** Position of the field type in source (for LSP queries) */
+    typePosition?: SourcePosition;
+    /** Whether this is an embedded/anonymous field */
+    isEmbedded?: boolean;
 }
 
 export interface GoInterface {
     name: string;
     methods: GoMethodSignature[];
+    /** Position of the interface name in source */
+    namePosition?: SourcePosition;
+    /** Full range of the interface definition */
+    range?: SourceRange;
+    /** Embedded interfaces */
+    embeddedInterfaces?: string[];
 }
 
 export interface GoMethodSignature {
     name: string;
     parameters: GoParameter[];
     returnTypes: GoType[];
+    /** Position of the method name in source */
+    namePosition?: SourcePosition;
 }
 
 export interface GoVariable {
@@ -45,9 +67,52 @@ export interface GoVariable {
     isConst: boolean;
     exported: boolean;
     value?: string;
+    /** Position of the variable name in source */
+    namePosition?: SourcePosition;
+    /** Position of the type in source (for LSP queries) */
+    typePosition?: SourcePosition;
 }
 
 export type GoConstant = GoVariable;
+
+/**
+ * Build a map of import aliases to full import paths.
+ * Useful for resolving qualified types like "http.Request" to "net/http.Request"
+ */
+export function buildImportAliasMap(goFile: GoFile): Map<string, string> {
+    const map = new Map<string, string>();
+    for (const imp of goFile.imports) {
+        // If alias is explicitly specified, use it
+        // Otherwise, derive from the last segment of the path
+        const alias = imp.alias || imp.path.split('/').pop()!;
+        map.set(alias, imp.path);
+    }
+    return map;
+}
+
+/**
+ * Resolve a qualified type name (e.g., "http.Request") to its full import path.
+ */
+export function resolveQualifiedType(typeName: string, importMap: Map<string, string>): {
+    packageAlias: string;
+    typeName: string;
+    fullImportPath: string | undefined;
+} | undefined {
+    const dotIndex = typeName.indexOf('.');
+    if (dotIndex === -1) {
+        return undefined; // Not a qualified type
+    }
+    
+    const packageAlias = typeName.substring(0, dotIndex);
+    const shortTypeName = typeName.substring(dotIndex + 1);
+    const fullImportPath = importMap.get(packageAlias);
+    
+    return {
+        packageAlias,
+        typeName: shortTypeName,
+        fullImportPath
+    };
+}
 
 export class GoFileParser {
     /**
@@ -238,14 +303,24 @@ export class GoFileParser {
         struct: GoStruct,
         nextLine: number
     } {
+        // Find the position of the struct name in the first line
+        const firstLineText = lines[startLine];
+        const nameIndex = firstLineText.indexOf(name);
+        
         const struct: GoStruct = {
             name,
             fields: [],
-            methods: []
+            methods: [],
+            embeddedTypes: [],
+            namePosition: {
+                line: startLine,
+                character: nameIndex >= 0 ? nameIndex : 0
+            }
         };
 
         let i = startLine;
         const firstLine = lines[i].trim();
+        const structStartLine = startLine;
 
         // Check if opening brace is on the same line
         if (firstLine.includes('{')) {
@@ -279,41 +354,96 @@ export class GoFileParser {
                 continue;
             }
 
-            // Parse field
-            const field = this.parseField(line);
+            // Parse field (including embedded fields)
+            const field = this.parseField(line, i, lines[i]);
             if (field) {
+                if (field.isEmbedded && struct.embeddedTypes) {
+                    struct.embeddedTypes.push(field.type);
+                }
                 struct.fields.push(field);
             }
 
             i++;
         }
 
+        // Set the full range of the struct
+        struct.range = {
+            start: { line: structStartLine, character: 0 },
+            end: { line: i, character: lines[i]?.length || 0 }
+        };
+
         return { struct, nextLine: i + 1 };
     }
 
     /**
-     * Parse struct field
+     * Parse struct field (including embedded/anonymous fields)
      */
-    private static parseField(line: string): GoField | null {
-        // Match: fieldName type `tag`
-        const match = line.match(/^(\w+)\s+([^\s`]+)(?:\s+`([^`]+)`)?/);
-        if (!match) {
-            return null;
+    private static parseField(line: string, lineNumber: number, rawLine: string): GoField | null {
+        // First, try to match a named field: fieldName type `tag`
+        const namedMatch = line.match(/^(\w+)\s+([^\s`]+)(?:\s+`([^`]+)`)?/);
+        if (namedMatch) {
+            const name = namedMatch[1];
+            const typeStr = namedMatch[2];
+            const tag = namedMatch[3];
+
+            // Check if field is exported (starts with uppercase)
+            const exported = name.charAt(0) === name.charAt(0).toUpperCase();
+
+            // Find positions in the raw line
+            const nameIndex = rawLine.indexOf(name);
+            const typeIndex = rawLine.indexOf(typeStr, nameIndex + name.length);
+
+            return {
+                name,
+                type: GoFunctionParser['parseType'](typeStr),
+                tag,
+                exported,
+                isEmbedded: false,
+                namePosition: {
+                    line: lineNumber,
+                    character: nameIndex >= 0 ? nameIndex : 0
+                },
+                typePosition: {
+                    line: lineNumber,
+                    character: typeIndex >= 0 ? typeIndex : 0
+                }
+            };
         }
 
-        const name = match[1];
-        const typeStr = match[2];
-        const tag = match[3];
+        // Try to match embedded field: *TypeName or TypeName or package.TypeName
+        const embeddedMatch = line.match(/^(\*?)([A-Z]\w*(?:\.\w+)?)(?:\s+`([^`]+)`)?$/);
+        if (embeddedMatch) {
+            const pointer = embeddedMatch[1];
+            const typeName = embeddedMatch[2];
+            const tag = embeddedMatch[3];
+            const fullTypeName = pointer + typeName;
 
-        // Check if field is exported (starts with uppercase)
-        const exported = name.charAt(0) === name.charAt(0).toUpperCase();
+            // For embedded fields, the name is the type name (without pointer and package prefix)
+            const shortName = typeName.includes('.') 
+                ? typeName.split('.').pop()! 
+                : typeName;
 
-        return {
-            name,
-            type: GoFunctionParser['parseType'](typeStr),
-            tag,
-            exported
-        };
+            const exported = shortName.charAt(0) === shortName.charAt(0).toUpperCase();
+            const typeIndex = rawLine.indexOf(fullTypeName);
+
+            return {
+                name: shortName,
+                type: GoFunctionParser['parseType'](fullTypeName),
+                tag,
+                exported,
+                isEmbedded: true,
+                namePosition: {
+                    line: lineNumber,
+                    character: typeIndex >= 0 ? typeIndex : 0
+                },
+                typePosition: {
+                    line: lineNumber,
+                    character: typeIndex >= 0 ? typeIndex : 0
+                }
+            };
+        }
+
+        return null;
     }
 
     /**

@@ -1,6 +1,7 @@
 import { GoFile, GoStruct, GoInterface, GoVariable, GoField } from './goFileParser';
 import { GoFunction, GoFunctionParser, GoType } from './goParser';
 import { JavaCodeGenerator, JavaGenerationOptions } from './javaGenerator';
+import { ConversionContext, lookupStdlibType, StdlibTypeMapping, createConversionContext } from './conversionContext';
 
 export interface JavaFileGenerationOptions extends JavaGenerationOptions {
     packageName?: string;
@@ -8,27 +9,48 @@ export interface JavaFileGenerationOptions extends JavaGenerationOptions {
     includeConstructors?: boolean;
     includeGettersSetters?: boolean;
     includeComments?: boolean;
+    /** Include external types resolved from dependencies */
+    includeExternalTypes?: boolean;
+    /** Add educational notes about stdlib type mappings */
+    addStdlibNotes?: boolean;
 }
 
 export class JavaFileGenerator {
     /**
      * Generate a complete Java file from a parsed Go file
+     * @param goFile The parsed Go file
+     * @param options Generation options
+     * @param context Optional conversion context with resolved dependencies
      */
-    static generateJavaFile(goFile: GoFile, options: JavaFileGenerationOptions = {
-        isStatic: true,
-        addComments: true,
-        handleErrorsAsExceptions: true,
-        includeConstructors: true,
-        includeGettersSetters: true,
-        includeComments: true
-    }): string {
+    static generateJavaFile(
+        goFile: GoFile, 
+        options: JavaFileGenerationOptions = {
+            isStatic: true,
+            addComments: true,
+            handleErrorsAsExceptions: true,
+            includeConstructors: true,
+            includeGettersSetters: true,
+            includeComments: true,
+            includeExternalTypes: true,
+            addStdlibNotes: true
+        },
+        context?: ConversionContext
+    ): string {
         const lines: string[] = [];
+        
+        // Create context if not provided
+        const ctx = context || createConversionContext(goFile);
 
         // Determine class name from package name or option
         const className = options.className || this.toJavaClassName(goFile.packageName) || 'GoConverter';
 
+        // Collect required Java imports
+        const javaImports = this.collectJavaImports(goFile, ctx);
+        
         // Add imports
-        lines.push('import java.util.*;');
+        for (const imp of javaImports) {
+            lines.push(`import ${imp};`);
+        }
         lines.push('');
 
         // Add file-level comment
@@ -68,7 +90,7 @@ export class JavaFileGenerator {
 
         // Generate inner classes from structs
         for (const struct of goFile.structs) {
-            const javaClass = this.generateJavaClass(struct, options);
+            const javaClass = this.generateJavaClass(struct, options, ctx);
             javaClass.split('\n').forEach(line => {
                 lines.push('    ' + line);
             });
@@ -77,11 +99,37 @@ export class JavaFileGenerator {
 
         // Generate inner interfaces
         for (const iface of goFile.interfaces) {
-            const javaInterface = this.generateJavaInterface(iface, options);
+            const javaInterface = this.generateJavaInterface(iface, options, ctx);
             javaInterface.split('\n').forEach(line => {
                 lines.push('    ' + line);
             });
             lines.push('');
+        }
+
+        // Generate external types from dependencies (if enabled)
+        if (options.includeExternalTypes && ctx.externalStructs.length > 0) {
+            lines.push('    // ═══════════════════════════════════════════════════════════════');
+            lines.push('    // External types from imported packages');
+            lines.push('    // ═══════════════════════════════════════════════════════════════');
+            lines.push('');
+            
+            for (const struct of ctx.externalStructs) {
+                const javaClass = this.generateJavaClass(struct, options, ctx, true);
+                javaClass.split('\n').forEach(line => {
+                    lines.push('    ' + line);
+                });
+                lines.push('');
+            }
+        }
+
+        if (options.includeExternalTypes && ctx.externalInterfaces.length > 0) {
+            for (const iface of ctx.externalInterfaces) {
+                const javaInterface = this.generateJavaInterface(iface, options, ctx, true);
+                javaInterface.split('\n').forEach(line => {
+                    lines.push('    ' + line);
+                });
+                lines.push('');
+            }
         }
 
         // Generate static methods from package-level functions
@@ -106,21 +154,81 @@ export class JavaFileGenerator {
     }
 
     /**
+     * Collect all required Java imports based on types used
+     */
+    private static collectJavaImports(goFile: GoFile, ctx: ConversionContext): string[] {
+        const imports = new Set<string>();
+        imports.add('java.util.*');
+
+        // Scan all types for stdlib mappings that require imports
+        const allTypes: GoType[] = [];
+        
+        for (const struct of goFile.structs) {
+            for (const field of struct.fields) {
+                allTypes.push(field.type);
+            }
+        }
+        
+        for (const iface of goFile.interfaces) {
+            for (const method of iface.methods) {
+                allTypes.push(...method.parameters.map(p => p.type));
+                allTypes.push(...method.returnTypes);
+            }
+        }
+        
+        for (const func of goFile.functions) {
+            allTypes.push(...func.parameters.map(p => p.type));
+            allTypes.push(...func.returnTypes);
+        }
+
+        // Check each type for stdlib mapping
+        for (const type of allTypes) {
+            const mapping = lookupStdlibType(type.name, type.packagePath);
+            if (mapping?.javaImport) {
+                imports.add(mapping.javaImport);
+            }
+        }
+
+        return Array.from(imports);
+    }
+
+    /**
      * Generate a Java inner class from a Go struct
      */
-    private static generateJavaClass(struct: GoStruct, options: JavaFileGenerationOptions): string {
+    private static generateJavaClass(
+        struct: GoStruct, 
+        options: JavaFileGenerationOptions,
+        ctx?: ConversionContext,
+        isExternal: boolean = false
+    ): string {
         const lines: string[] = [];
 
         // Class JavaDoc
         if (options.includeComments) {
             lines.push('/**');
+            if (isExternal) {
+                lines.push(` * External type from imported package`);
+            }
             lines.push(` * Converted from Go struct: ${struct.name}`);
+            
+            // Add embedded type info if present
+            if (struct.embeddedTypes && struct.embeddedTypes.length > 0) {
+                lines.push(' *');
+                lines.push(' * Embedded types (Go embedding → Java composition):');
+                for (const embedded of struct.embeddedTypes) {
+                    const javaType = this.convertTypeToJavaWithContext(embedded, ctx);
+                    lines.push(` * - ${embedded.name} → ${javaType}`);
+                }
+            }
+            
             if (struct.fields.length > 0) {
                 lines.push(' *');
                 lines.push(' * Fields:');
                 for (const field of struct.fields) {
-                    const javaType = this.convertTypeToJava(field.type, struct, []);
-                    lines.push(` * - ${field.name}: ${javaType}${field.tag ? ` (tag: ${field.tag})` : ''}`);
+                    if (field.isEmbedded) continue; // Already shown above
+                    const javaType = this.convertTypeToJavaWithContext(field.type, ctx);
+                    const stdlibNote = this.getStdlibNote(field.type, ctx);
+                    lines.push(` * - ${field.name}: ${javaType}${field.tag ? ` (tag: ${field.tag})` : ''}${stdlibNote}`);
                 }
             }
             lines.push(' */');
@@ -129,12 +237,26 @@ export class JavaFileGenerator {
         // Class declaration
         lines.push(`public static class ${struct.name} {`);
 
-        // Generate fields
-        if (struct.fields.length > 0) {
+        // Generate embedded fields first (composition pattern)
+        if (struct.embeddedTypes && struct.embeddedTypes.length > 0) {
             lines.push('');
-            for (const field of struct.fields) {
-                const javaField = this.generateClassField(field, struct, []);
-                lines.push('    ' + javaField);
+            lines.push('    // Embedded types (Go embedding → Java composition)');
+            for (const embedded of struct.embeddedTypes) {
+                const javaType = this.convertTypeToJavaWithContext(embedded, ctx);
+                const fieldName = GoFunctionParser.toJavaMethodName(embedded.name.replace('*', ''));
+                lines.push(`    private ${javaType} ${fieldName};`);
+            }
+        }
+
+        // Generate regular fields
+        if (struct.fields.length > 0) {
+            const regularFields = struct.fields.filter(f => !f.isEmbedded);
+            if (regularFields.length > 0) {
+                lines.push('');
+                for (const field of regularFields) {
+                    const javaField = this.generateClassFieldWithContext(field, ctx);
+                    lines.push('    ' + javaField);
+                }
             }
         }
 
@@ -151,8 +273,8 @@ export class JavaFileGenerator {
         if (options.includeGettersSetters && struct.fields.length > 0) {
             lines.push('');
             for (const field of struct.fields) {
-                const getter = this.generateGetter(field, struct, []);
-                const setter = this.generateSetter(field, struct, []);
+                const getter = this.generateGetterWithContext(field, ctx);
+                const setter = this.generateSetterWithContext(field, ctx);
                 getter.split('\n').forEach(line => lines.push('    ' + line));
                 lines.push('');
                 setter.split('\n').forEach(line => lines.push('    ' + line));
@@ -187,18 +309,36 @@ export class JavaFileGenerator {
     /**
      * Generate a Java interface from a Go interface
      */
-    private static generateJavaInterface(iface: GoInterface, options: JavaFileGenerationOptions): string {
+    private static generateJavaInterface(
+        iface: GoInterface, 
+        options: JavaFileGenerationOptions,
+        ctx?: ConversionContext,
+        isExternal: boolean = false
+    ): string {
         const lines: string[] = [];
 
         // Interface JavaDoc
         if (options.includeComments) {
             lines.push('/**');
+            if (isExternal) {
+                lines.push(` * External interface from imported package`);
+            }
             lines.push(` * Converted from Go interface: ${iface.name}`);
+            
+            // Add embedded interface info if present
+            if (iface.embeddedInterfaces && iface.embeddedInterfaces.length > 0) {
+                lines.push(' *');
+                lines.push(' * Embeds interfaces: ' + iface.embeddedInterfaces.join(', '));
+            }
             lines.push(' */');
         }
 
-        // Interface declaration
-        lines.push(`public interface ${iface.name} {`);
+        // Interface declaration with extends for embedded interfaces
+        let extendsClause = '';
+        if (iface.embeddedInterfaces && iface.embeddedInterfaces.length > 0) {
+            extendsClause = ` extends ${iface.embeddedInterfaces.join(', ')}`;
+        }
+        lines.push(`public interface ${iface.name}${extendsClause} {`);
 
         // Generate method signatures
         if (iface.methods.length > 0) {
@@ -211,7 +351,8 @@ export class JavaFileGenerator {
                     lines.push(`     * ${method.name}`);
                     if (method.parameters.length > 0) {
                         for (const param of method.parameters) {
-                            lines.push(`     * @param ${param.name}`);
+                            const stdlibNote = this.getStdlibNote(param.type, ctx);
+                            lines.push(`     * @param ${param.name}${stdlibNote}`);
                         }
                     }
                     if (method.returnTypes.length > 0) {
@@ -221,8 +362,8 @@ export class JavaFileGenerator {
                 }
 
                 // Method signature
-                const returnType = this.getReturnType(method.returnTypes);
-                const params = this.generateParameterList(method.parameters);
+                const returnType = this.getReturnTypeWithContext(method.returnTypes, ctx);
+                const params = this.generateParameterListWithContext(method.parameters, ctx);
                 const throwsClause = method.returnTypes.some(t => t.name === 'error') ? ' throws Exception' : '';
                 lines.push(`    ${returnType} ${GoFunctionParser.toJavaMethodName(method.name)}(${params})${throwsClause};`);
             }
@@ -376,5 +517,135 @@ export class JavaFileGenerator {
         }
         // Return as-is for numbers and strings
         return value;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Context-aware helper methods for enhanced type conversion
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Convert Go type to Java type using conversion context (with stdlib mapping)
+     */
+    private static convertTypeToJavaWithContext(goType: GoType, ctx?: ConversionContext): string {
+        if (!ctx) {
+            return GoFunctionParser.convertGoTypeToJava(goType, goType.isSlice || goType.isMap);
+        }
+
+        // Check for stdlib mapping first
+        const stdlibMapping = lookupStdlibType(goType.name, goType.packagePath);
+        if (stdlibMapping) {
+            return stdlibMapping.javaType;
+        }
+
+        // Check if this is a qualified type we can resolve
+        if (goType.name.includes('.')) {
+            const parts = goType.name.split('.');
+            const pkgAlias = parts[0];
+            const typeName = parts[1];
+            const fullPath = ctx.importAliasMap.get(pkgAlias);
+            
+            if (fullPath) {
+                const qualifiedName = `${pkgAlias}.${typeName}`;
+                const mapping = lookupStdlibType(qualifiedName);
+                if (mapping) {
+                    return mapping.javaType;
+                }
+            }
+        }
+
+        // Use base type conversion
+        return GoFunctionParser.convertGoTypeToJava(goType, goType.isSlice || goType.isMap);
+    }
+
+    /**
+     * Get an educational note about stdlib type mapping
+     */
+    private static getStdlibNote(goType: GoType, ctx?: ConversionContext): string {
+        if (!ctx) return '';
+
+        const mapping = lookupStdlibType(goType.name, goType.packagePath);
+        if (mapping?.conversionNote) {
+            return ` (Note: ${mapping.conversionNote})`;
+        }
+        return '';
+    }
+
+    /**
+     * Generate a class field with context-aware type conversion
+     */
+    private static generateClassFieldWithContext(field: GoField, ctx?: ConversionContext): string {
+        const javaType = this.convertTypeToJavaWithContext(field.type, ctx);
+        const fieldName = GoFunctionParser.toJavaMethodName(field.name);
+        let comment = '';
+
+        if (field.tag) {
+            comment = `  // Go tag: ${field.tag}`;
+        }
+        
+        // Add stdlib mapping note if applicable
+        if (ctx) {
+            const mapping = lookupStdlibType(field.type.name, field.type.packagePath);
+            if (mapping && !field.tag) {
+                comment = `  // ${field.type.name} → ${mapping.javaType}`;
+            }
+        }
+
+        return `private ${javaType} ${fieldName};${comment}`;
+    }
+
+    /**
+     * Generate a getter method with context-aware type conversion
+     */
+    private static generateGetterWithContext(field: GoField, ctx?: ConversionContext): string {
+        const javaType = this.convertTypeToJavaWithContext(field.type, ctx);
+        const fieldName = GoFunctionParser.toJavaMethodName(field.name);
+        const methodName = 'get' + field.name.charAt(0).toUpperCase() + field.name.slice(1);
+
+        return `public ${javaType} ${methodName}() {\n    return ${fieldName};\n}`;
+    }
+
+    /**
+     * Generate a setter method with context-aware type conversion
+     */
+    private static generateSetterWithContext(field: GoField, ctx?: ConversionContext): string {
+        const javaType = this.convertTypeToJavaWithContext(field.type, ctx);
+        const fieldName = GoFunctionParser.toJavaMethodName(field.name);
+        const methodName = 'set' + field.name.charAt(0).toUpperCase() + field.name.slice(1);
+
+        return `public void ${methodName}(${javaType} ${fieldName}) {\n    this.${fieldName} = ${fieldName};\n}`;
+    }
+
+    /**
+     * Get Java return type with context-aware conversion
+     */
+    private static getReturnTypeWithContext(returnTypes: GoType[], ctx?: ConversionContext): string {
+        if (returnTypes.length === 0) {
+            return 'void';
+        }
+
+        // Filter out error types
+        const nonErrorTypes = returnTypes.filter(t => t.name !== 'error');
+
+        if (nonErrorTypes.length === 0) {
+            return 'void';
+        }
+
+        if (nonErrorTypes.length === 1) {
+            return this.convertTypeToJavaWithContext(nonErrorTypes[0], ctx);
+        }
+
+        // Multiple return values would need Result class (handled elsewhere)
+        return 'Object';
+    }
+
+    /**
+     * Generate parameter list with context-aware type conversion
+     */
+    private static generateParameterListWithContext(parameters: any[], ctx?: ConversionContext): string {
+        return parameters.map(param => {
+            const javaType = this.convertTypeToJavaWithContext(param.type, ctx);
+            const paramName = GoFunctionParser.toJavaMethodName(param.name);
+            return `${javaType} ${paramName}`;
+        }).join(', ');
     }
 }

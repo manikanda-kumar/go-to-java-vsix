@@ -1,3 +1,15 @@
+/** Source position for LSP queries */
+export interface SourcePosition {
+    line: number;
+    character: number;
+}
+
+/** Source range for LSP queries */
+export interface SourceRange {
+    start: SourcePosition;
+    end: SourcePosition;
+}
+
 export interface GoFunction {
     name: string;
     parameters: GoParameter[];
@@ -5,11 +17,21 @@ export interface GoFunction {
     isMethod: boolean;
     receiver?: GoParameter;
     hasErrorReturn: boolean;
+    /** Position of the function name in source */
+    namePosition?: SourcePosition;
+    /** Position of the function start (func keyword) */
+    startPosition?: SourcePosition;
+    /** Full range of the function signature */
+    signatureRange?: SourceRange;
 }
 
 export interface GoParameter {
     name: string;
     type: GoType;
+    /** Position of the parameter name in source */
+    namePosition?: SourcePosition;
+    /** Position of the type in source (for LSP queries) */
+    typePosition?: SourcePosition;
 }
 
 export interface GoType {
@@ -20,6 +42,8 @@ export interface GoType {
     isVariadic: boolean;
     keyType?: GoType;
     valueType?: GoType;
+    /** Position of this type reference in source (for LSP queries) */
+    position?: SourcePosition;
     // Semantic fields (enriched by gopls)
     /** Whether this type is an interface (from gopls) */
     isInterface?: boolean;
@@ -31,9 +55,11 @@ export interface GoType {
     resolvedType?: string;
     /** Whether this type has been enriched by gopls */
     isResolved?: boolean;
+    /** Full import path (e.g., "net/http" for http.Request) */
+    fullImportPath?: string;
 }
 
-/** Source position for a type reference (used for gopls queries) */
+/** @deprecated Use SourcePosition instead */
 export interface TypeSourcePosition {
     line: number;
     character: number;

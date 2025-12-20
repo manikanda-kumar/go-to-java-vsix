@@ -146,6 +146,28 @@
           "minimum": 100,
           "maximum": 10000,
           "description": "Timeout in ms for gopls queries (default: 1000ms)"
+        },
+        "goToJava.useDeepResolution": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable deep type resolution to follow dependencies across files and packages"
+        },
+        "goToJava.resolutionDepth": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Maximum depth for recursive type dependency resolution"
+        },
+        "goToJava.includeExternalTypes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include external types from imported packages in generated Java"
+        },
+        "goToJava.useStdlibMapping": {
+          "type": "boolean",
+          "default": true,
+          "description": "Map Go standard library types to idiomatic Java equivalents (e.g., io.Reader → InputStream)"
         }
       }
     }
